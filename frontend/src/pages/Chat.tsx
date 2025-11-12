@@ -4,20 +4,33 @@ import axios from 'axios'
 import ChatInput from '../components/ChatInput'
 import ChatWindow from '../components/ChatWindow'
 import type { ChatState, Message } from '../types'
+import { hasExecutionDetailsData } from '../utils/executionDetails'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const STORAGE_KEY = 'dualmind_chat_state'
 
+interface MessageOptions
+  extends Pick<
+    Message,
+    | 'attachments'
+    | 'executionDetails'
+    | 'status'
+    | 'fallbackUsed'
+    | 'fallbackReason'
+    | 'fallbackSource'
+    | 'lightweightMode'
+  > {}
+
 const createMessage = (
   sender: Message['sender'],
   content: string,
-  attachments?: Message['attachments'],
+  options: MessageOptions = {},
 ): Message => ({
   id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   sender,
   content,
-  attachments,
   createdAt: new Date().toISOString(),
+  ...options,
 })
 
 const Chat = () => {
@@ -66,7 +79,9 @@ const Chat = () => {
         ]
       : undefined
 
-    const userMessage = createMessage('user', text || (file ? `Uploaded ${file.name}` : ''), attachments)
+    const userMessage = createMessage('user', text || (file ? `Uploaded ${file.name}` : ''), {
+      attachments,
+    })
     setMessages((prev) => [...prev, userMessage])
 
     setIsTyping(true)
@@ -88,7 +103,21 @@ const Chat = () => {
         }
 
         if (uploadResponse.data?.response) {
-          setMessages((prev) => [...prev, createMessage('assistant', uploadResponse.data.response)])
+          const executionDetails = uploadResponse.data.execution_details
+          const messageOptions: MessageOptions = {
+            status: uploadResponse.data.status,
+            fallbackUsed: uploadResponse.data.fallback_used,
+            fallbackReason: uploadResponse.data.fallback_reason,
+            fallbackSource: uploadResponse.data.fallback_source,
+            lightweightMode: uploadResponse.data.lightweight_mode,
+          }
+
+          if (hasExecutionDetailsData(executionDetails)) {
+            messageOptions.executionDetails = executionDetails
+          }
+
+          const assistantMessage = createMessage('assistant', uploadResponse.data.response, messageOptions)
+          setMessages((prev) => [...prev, assistantMessage])
         } else {
           setMessages((prev) => [
             ...prev,
@@ -102,14 +131,33 @@ const Chat = () => {
         }
       } else {
         const chatResponse = await client.post('/api/chat', { message: text })
-        setMessages((prev) => [...prev, createMessage('assistant', chatResponse.data.response)])
+        const executionDetails = chatResponse.data.execution_details
+        const messageOptions: MessageOptions = {
+          status: chatResponse.data.status,
+          fallbackUsed: chatResponse.data.fallback_used,
+          fallbackReason: chatResponse.data.fallback_reason,
+          fallbackSource: chatResponse.data.fallback_source,
+          lightweightMode: chatResponse.data.lightweight_mode,
+        }
+
+        if (hasExecutionDetailsData(executionDetails)) {
+          messageOptions.executionDetails = executionDetails
+        }
+
+        const assistantMessage = createMessage('assistant', chatResponse.data.response, messageOptions)
+        setMessages((prev) => [...prev, assistantMessage])
         setSessionId(chatResponse.data.session_id)
       }
     } catch (error) {
       const detail = axios.isAxiosError(error)
         ? error.response?.data?.detail || error.message
         : 'Unexpected error occurred.'
-      setMessages((prev) => [...prev, createMessage('assistant', `Sorry, I ran into an issue: ${detail}`)])
+      setMessages((prev) => [
+        ...prev,
+        createMessage('assistant', `Sorry, I ran into an issue: ${detail}`, {
+          status: 'error',
+        }),
+      ])
     } finally {
       setIsTyping(false)
     }

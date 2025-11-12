@@ -1,5 +1,8 @@
 import type { FC } from 'react'
 import type { Message } from '../types'
+// @ts-ignore - consuming shared tabs component authored in JS
+import MessageTabs from './MessageTabs'
+import { hasExecutionDetailsData } from '../utils/executionDetails'
 // @ts-ignore - LLMMessage is a JSX component with proper typing
 import LLMMessage from './LLMMessage'
 
@@ -11,9 +14,27 @@ const formatTime = (iso: string) => {
   const date = new Date(iso)
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
-
 const MessageBubble: FC<MessageBubbleProps> = ({ message }) => {
   const isUser = message.sender === 'user'
+
+  const renderAssistantContent = () => {
+    const details = message.executionDetails
+    const showTabs = hasExecutionDetailsData(details)
+
+    if (!showTabs) {
+      return <LLMMessage content={message.content} />
+    }
+
+    return (
+      <MessageTabs
+        answer={message.content}
+        executionDetails={details}
+        fallbackUsed={Boolean(message.fallbackUsed)}
+        fallbackReason={message.fallbackReason ?? undefined}
+        fallbackSource={message.fallbackSource ?? undefined}
+      />
+    )
+  }
 
   return (
     <div
@@ -31,11 +52,9 @@ const MessageBubble: FC<MessageBubbleProps> = ({ message }) => {
         `}
       >
         {isUser ? (
-          <p className="text-[15px] leading-6 whitespace-pre-wrap text-text-primary">
-            {message.content}
-          </p>
+          <p className="text-[15px] leading-6 whitespace-pre-wrap text-text-primary">{message.content}</p>
         ) : (
-          <LLMMessage content={message.content} />
+          renderAssistantContent()
         )}
 
         {message.attachments?.length ? (
